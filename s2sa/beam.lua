@@ -244,6 +244,8 @@ function generate_beam(model, initial, K, max_sent_l, source, source_features, g
     end
     local out_decoder = model[2]:forward(decoder_input)
     local out = model[3]:forward(out_decoder[#out_decoder]) -- K x vocab_size
+    local task2_out = out[2]
+    out = out[1]
 
     rnn_state_dec = {} -- to be modified later
     if model_opt.input_feed == 1 then

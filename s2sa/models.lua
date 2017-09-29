@@ -236,6 +236,37 @@ function make_generator(data, opt)
   return model, criterion
 end
 
+function make_generator_multitask(data, opt)
+  local multi_model = nn.ConcatTable()
+
+  local task1_model = nn.Sequential()
+  task1_model:add(nn.Linear(opt.rnn_size, data.target_size))
+  task1_model:add(nn.LogSoftMax())
+  local task1_w = torch.ones(data.target_size)
+  task1_w[1] = 0
+
+  local task2_model = nn.Sequential()
+  task2_model:add(nn.Linear(opt.rnn_size, data.task2_target_size))
+  task2_model:add(nn.LogSoftMax())
+  local task2_w = torch.ones(data.task2_target_size)
+  task2_w[1] = 0
+
+  multi_model:add(task1_model)
+  multi_model:add(task2_model)
+
+  local multi_criterion = nn.ParallelCriterion()
+  task1_criterion = nn.ClassNLLCriterion(task1_w)
+  task1_criterion.sizeAverage = false
+
+  task2_criterion = nn.ClassNLLCriterion(task2_w)
+  task2_criterion.sizeAverage = false
+
+  print('Task 2 Weight: ', opt.multi_task_weight)
+  multi_criterion:add(task1_criterion, 1-opt.multi_task_weight)
+  multi_criterion:add(task2_criterion, opt.multi_task_weight)
+  return multi_model, multi_criterion
+end
+
 -- cnn Unit
 function make_cnn(input_size, kernel_width, num_kernels)
   local output

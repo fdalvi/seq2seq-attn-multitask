@@ -91,6 +91,7 @@ function data:__init(opt, data_file)
   self.batch_idx = f:read('batch_idx'):all()
 
   self.target_size = f:read('target_size'):all()[1]
+  self.task2_target_size = f:read('task2_target_size'):all()[1]
   self.source_size = f:read('source_size'):all()[1]
   self.target_nonzeros = f:read('target_nonzeros'):all()
 
@@ -126,7 +127,7 @@ function data:__init(opt, data_file)
   for i = 1, self.length do
     local source_i, target_i
     local source_features_i
-    local target_output_i = self.target_output:sub(self.batch_idx[i],self.batch_idx[i]
+    local target_output_i = self.target_output:sub(1,2, self.batch_idx[i],self.batch_idx[i]
       +self.batch_l[i]-1, 1, self.target_l[i])
     local target_l_i = self.target_l_all:sub(self.batch_idx[i],
       self.batch_idx[i]+self.batch_l[i]-1)
@@ -175,7 +176,7 @@ function data:__init(opt, data_file)
     end
 
     table.insert(self.batches, {target_i,
-        target_output_i:transpose(1,2),
+        target_output_i:transpose(2,3),
         self.target_nonzeros[i],
         source_i,
         self.batch_l[i],

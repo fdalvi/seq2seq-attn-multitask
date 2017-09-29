@@ -52,6 +52,7 @@ cmd:option('-res_net', 0, [[Use residual connections between LSTM stacks whereby
                           the l-th LSTM layer if the hidden state of the l-1-th LSTM layer
                           added with the l-2th LSTM layer. We didn't find this to help in our
                           experiments]])
+cmd:option('-multi_task_weight', 0.5, [[default weights for second task]])
 cmd:option('-guided_alignment', 0, [[If 1, use external alignments to guide the attention weights as in
                                    (Chen et al., Guided Alignment Training for Topic-Aware Neural Machine Translation,
                                    arXiv 2016.). Alignments should have been provided during preprocess]])
@@ -82,7 +83,6 @@ cmd:option('-optim', 'sgd', [[Optimization method. Possible options are: sgd (va
 cmd:option('-learning_rate', 1, [[Starting learning rate. If adagrad/adadelta/adam is used,
                                 then this is the global learning rate. Recommended settings: sgd =1,
                                 adagrad = 0.1, adadelta = 1, adam = 0.1]])
-cmd:option('-layer_lrs', '', [[Comma-separated learning rates for encoder, decoder, and generator. Only used if optim ~= sgd.]])
 cmd:option('-max_grad_norm', 5, [[If the norm of the gradient vector exceeds this renormalize it to have the norm equal to max_grad_norm]])
 cmd:option('-dropout', 0.3, [[Dropout probability. Dropout is applied between vertical LSTM stacks.]])
 cmd:option('-lr_decay', 0.5, [[Decay learning rate by this much if (i) perplexity does not decrease
@@ -379,6 +379,9 @@ function train(train_data, valid_data)
       local source_features = d[9]
       local alignment = d[10]
       local norm_alignment
+
+      -- print(target)
+
       if opt.guided_alignment == 1 then
         replicator=nn.Replicate(alignment:size(2),2)
         if opt.gpuid >= 0 then
@@ -463,7 +466,9 @@ function train(train_data, valid_data)
         else
           decoder_input = {target[t], context[{{}, source_l}], table.unpack(rnn_state_dec[t-1])}
         end
+        -- print(decoder_input)
         local out = decoder_clones[t]:forward(decoder_input)
+        -- print(out)
         local out_pred_idx = #out
         if opt.guided_alignment == 1 then
           out_pred_idx = #out-1
@@ -494,10 +499,11 @@ function train(train_data, valid_data)
       local loss = 0
       local loss_cll = 0
       for t = target_l, 1, -1 do
+        -- print(preds[t]:size())
         local pred = generator:forward(preds[t])
 
         local input = pred
-        local output = target_out[t]
+        local output = {target_out[1][t],target_out[2][t]}
         if opt.guided_alignment == 1 then
           input={input, attn_outputs[t]}
           output={output, norm_alignment[{{},{},t}]}
@@ -517,7 +523,8 @@ function train(train_data, valid_data)
           dl_dpred = criterion:backward(input, output)
         end
 
-        dl_dpred:div(batch_l)
+        dl_dpred[1]:div(batch_l)
+        dl_dpred[2]:div(batch_l)
         local dl_dtarget = generator:backward(preds[t], dl_dpred)
 
         local rnn_state_dec_pred_idx = #drnn_state_dec
@@ -635,22 +642,19 @@ function train(train_data, valid_data)
         word_vec_layers[1].gradWeight:zero()
       end
 
-      if opt.brnn == 1 then
-        word_vec_layers[1].gradWeight:add(word_vec_layers[3].gradWeight)
-        if opt.use_chars_enc == 1 then
-          for j = 1, charcnn_offset do
-            charcnn_grad_layers[j]:add(charcnn_grad_layers[j+charcnn_offset])
-	    charcnn_grad_layers[j+charcnn_offset]:zero()
-          end
-        end
-	word_vec_layers[3].gradWeight:zero()
-      end
-
       grad_norm = grad_norm + grad_params[1]:norm()^2
       if opt.brnn == 1 then
         grad_norm = grad_norm + grad_params[4]:norm()^2
       end
       grad_norm = grad_norm^0.5
+      if opt.brnn == 1 then
+        word_vec_layers[1].gradWeight:add(word_vec_layers[3].gradWeight)
+        if opt.use_chars_enc == 1 then
+          for j = 1, charcnn_offset do
+            charcnn_grad_layers[j]:add(charcnn_grad_layers[j+charcnn_offset])
+          end
+        end
+      end
       -- Shrink norm and update params
       local param_norm = 0
       local shrinkage = opt.max_grad_norm / grad_norm
@@ -728,7 +732,6 @@ function train(train_data, valid_data)
     if opt.num_shards > 0 then
       total_loss = 0
       total_nonzeros = 0
-      total_loss_cll = 0
       local shard_order = torch.randperm(opt.num_shards)
       for s = 1, opt.num_shards do
         local fn = train_data .. '.' .. shard_order[s] .. '.hdf5'
@@ -767,7 +770,8 @@ function train(train_data, valid_data)
     local savefile = string.format('%s_epoch%.2f_%.2f.t7', opt.savefile, epoch, score)
     if epoch % opt.save_every == 0 then
       print('saving checkpoint to ' .. savefile)
-      clean_layer(generator)
+      -- TODO: Fix Cleaning
+      -- clean_layer(generator)
       if opt.brnn == 0 then
         torch.save(savefile, {{encoder, decoder, generator}, opt})
       else
@@ -777,7 +781,8 @@ function train(train_data, valid_data)
   end
   -- save final model
   local savefile = string.format('%s_final.t7', opt.savefile)
-  clean_layer(generator)
+  -- TODO: Fix Cleaning
+  -- clean_layer(generator)
   print('saving final model to ' .. savefile)
   if opt.brnn == 0 then
     torch.save(savefile, {{encoder:double(), decoder:double(), generator:double()}, opt})
@@ -898,7 +903,7 @@ function eval(data)
       local pred = generator:forward(out[out_pred_idx])
 
       local input = pred
-      local output = target_out[t]
+      local output = {target_out[1][t],target_out[2][t]}
       if opt.guided_alignment == 1 then
         input={input, attn_outputs[t]}
         output={output, norm_alignment[{{},{},t}]}
@@ -997,7 +1002,7 @@ function main()
   if opt.train_from:len() == 0 then
     encoder = make_lstm(valid_data, opt, 'enc', opt.use_chars_enc)
     decoder = make_lstm(valid_data, opt, 'dec', opt.use_chars_dec)
-    generator, criterion = make_generator(valid_data, opt)
+    generator, criterion = make_generator_multitask(valid_data, opt)
     if opt.brnn == 1 then
       encoder_bwd = make_lstm(valid_data, opt, 'enc', opt.use_chars_enc)
     end
@@ -1017,7 +1022,7 @@ function main()
     if model_opt.brnn == 1 then
       encoder_bwd = model[4]
     end
-    _, criterion = make_generator(valid_data, opt)
+    _, criterion = make_generator_multitask(valid_data, opt)
   end
 
   if opt.guided_alignment == 1 then
@@ -1036,23 +1041,8 @@ function main()
   if opt.optim ~= 'sgd' then
     layer_etas = {}
     optStates = {}
-
-    if opt.layer_lrs:len() > 0 then
-      local stringx = require('pl.stringx')
-      local lr_strings = stringx.split(opt.layer_lrs, ',')
-      if #lr_strings ~= #layers then error('1 learning rate per layer expected') end
-      for i = 1, #lr_strings do
-        local lr = tonumber(stringx.strip(lr_strings[i]))
-        if not lr then
-          error(string.format('malformed learning rate: %s', lr_strings[i]))
-        else
-          layer_etas[i] = lr
-        end
-      end
-    end
-
     for i = 1, #layers do
-      layer_etas[i] = layer_etas[i] or opt.learning_rate
+      layer_etas[i] = opt.learning_rate -- can have layer-specific lr, if desired
       optStates[i] = {}
     end
   end
