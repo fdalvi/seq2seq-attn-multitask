@@ -1,3 +1,24 @@
+## Sequence-to-Sequence Learning with Attention and Multitask learning
+All options remain the same as in the original implementation - we now have an additional option to weigh the losses between the two tasks:
+`multi_task_weight`: Weight for the second task between 0 and 1 (Weight for the first task is computed as `1 - multi_task_weight`)
+
+The preprocess script also now expects two extra arguments w.r.t the second task:
+* `task2targetfile`: Path to task 2 target training data, where each line represents a single target sequence.
+* `task2targetvalfile`: Path to task 2 target validation data.
+
+For more information and to expand on this work, please refer to:
+```
+@InProceedings{dalvi:2017:IJCNLP,
+  author    = {Dalvi, Fahim and Durrani, Nadir and Sajjad, Hassan and Belinkov, Yonatan and Vogel, Stephan},
+  title     = {{Understanding and Improving Morphological Learning in the Neural Machine Translation Decoder}},
+  booktitle = {Proceedings of the 8th International Joint Conference on Natural Language Processing (Volume 1: Long Papers)},
+  month     = {November},
+  year      = {2017},
+  address   = {Taipei, Taiwan},
+  publisher = {Association for Computational Linguistics}
+}
+```
+
 ## Sequence-to-Sequence Learning with Attentional Neural Networks
 
 **UPDATE: Check-out the beta release of <a href="http://opennmt.net">OpenNMT</a> a fully supported feature-complete rewrite of seq2seq-attn. Seq2seq-attn will remain supported, but new features and optimizations will focus on the new codebase.**
